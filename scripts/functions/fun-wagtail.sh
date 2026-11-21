@@ -175,14 +175,16 @@ function wagtail_wait() {
     fi
     sleep 2 ;
   done
-  echo "The site did not answer; the end of its server's log:" ;
-  ddev exec "supervisorctl tail webextradaemons:wagtail stderr" < /dev/null 2>/dev/null ;
+  # The daemons of the web container write to the container's log, not to a log file of their own.
+  echo "The site did not answer; the end of the web container's log:" ;
+  ddev logs -s web --tail 60 < /dev/null 2>/dev/null ;
   return 1 ;
 }
 
-# Start the server again (the daemon of the web container), and wait for it.
+# Start the server again (the daemon of the web container), and wait for it. A first start that fails is tried again by
+# supervisor, so the site's answer decides, not supervisorctl's.
 function wagtail_restart() {
-  ddev exec "supervisorctl restart webextradaemons:wagtail" < /dev/null > /dev/null || return 1 ;
+  ddev exec "supervisorctl restart webextradaemons:wagtail" < /dev/null > /dev/null 2>&1 ;
   wagtail_wait ;
 }
 
@@ -290,9 +292,12 @@ function wagtail_build() {
     fi
   fi
 
+  # The daemon has waited for .ready since the project started, and starts uWSGI within two seconds of it. No restart
+  # here: one that lands while the daemon is starting the server stops it half way, and the next start finds the port
+  # still held ("spawn error").
   touch "${project_path}/.ready" ;
   echo "Starting the site (uWSGI)." ;
-  wagtail_restart || exit 1 ;
+  wagtail_wait || exit 1 ;
 
   echo "${doc_name} ${PROJECT_NAME} has been built: ${kind}, $(wagtail_versions), at ${base_url}." ;
   echo "The admin: ${base_url}/admin/ · the mail catcher: ${base_url}:8026" ;

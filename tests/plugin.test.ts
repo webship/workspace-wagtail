@@ -124,3 +124,14 @@ test('the docs say container-based, name only what ships, and carry no personal 
   }
   for (const c of COMMANDS) assert.ok(read('README.md').includes(c), `the README lists ${c}`);
 });
+
+test('the builder lets the daemon start the server, and a failure shows the web container\'s log', () => {
+  const src = read('scripts/functions/fun-wagtail.sh');
+  // The daemon starts uWSGI by itself once .ready is there; a restart at that moment can stop it half way.
+  const afterReady = src.split('touch "${project_path}/.ready" ;')[1] || '';
+  const nextCall = (afterReady.match(/\b(wagtail_wait|wagtail_restart|supervisorctl \w+)\b/) || [])[1];
+  assert.strictEqual(nextCall, 'wagtail_wait', 'after .ready the builder waits for the site, it does not restart the server');
+  assert.match(src, /function wagtail_wait\(\) \{[\s\S]*?ddev logs -s web --tail \d+[\s\S]*?\n\}/, 'the site not answering shows the end of the web container\'s log');
+  assert.doesNotMatch(src, /supervisorctl tail/, 'the daemons have no log file of their own');
+  assert.match(src, /function wagtail_restart\(\) \{\n[^\n]*supervisorctl restart webextradaemons:wagtail[^\n]*\n\s+wagtail_wait ;/, 'a restart is judged by the site\'s answer');
+});
